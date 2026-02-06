@@ -4,12 +4,12 @@ Plugin Name: FV Antispam
 Plugin URI: http://foliovision.com/seo-tools/wordpress/plugins/fv-antispam
 Description: Powerful and simple antispam plugin. Puts all the spambot comments directly into trash and let's other plugins (Akismet) deal with the rest.
 Author: Foliovision
-Version: 2.7
+Version: 2.8
 Author URI: http://www.foliovision.com
 */
 
 
-$fv_antispam_ver = '2.7';
+$fv_antispam_ver = '2.8';
 $FV_Antispam_iFilledInCount = 0;
 $FV_Antispam_bMathJS = false;
 
@@ -550,6 +550,11 @@ class FV_Antispam extends FV_Antispam_Plugin {
     } else {     
       $date = date('Y-m-d H:i:s' ,mktime(0, 0, 0, date("m")-1, date("d"), date("Y")));
     }
+
+    if ( ! $date ) {
+      return;
+    }
+
     $comments = $wpdb->get_results("SELECT * FROM $wpdb->comments WHERE comment_id NOT IN ( select comment_id from $wpdb->commentmeta where meta_key = '_wp_trash_meta_time' ) AND comment_date_gmt < '$date' AND comment_approved = 'trash' ORDER BY comment_date_gmt ASC LIMIT 5000");
     if( count($comments) ) {      
       $comments_imploded = '';
@@ -1041,12 +1046,13 @@ function fvacq( form_name, form_id ) {
   
   
   function disp__login_form_js() {
+    $key   = $this->func__ip_protect();
     $value = !empty($_POST[$this->func__ip_protect()]) ? $_POST[$this->func__ip_protect()] : '';
     ?>
 <script type="text/javascript">    
   jQuery(document).ready(function() {
 		jQuery( '#user_email').after(
-			jQuery("#user_email").clone().attr('id', '<?php echo $this->func__ip_protect(); ?>').attr('name', '<?php echo $this->func__ip_protect(); ?>').attr('value', '<?php echo $value; ?>')
+			jQuery("#user_email").clone().attr('id', '<?php echo esc_js( $key ); ?>').attr('name', '<?php echo esc_js( $key ); ?>').attr('value', '<?php echo esc_attr( $value ); ?>')
 		);
     jQuery("#user_email").hide();    
   })      
@@ -1687,7 +1693,7 @@ function fvacq( form_name, form_id ) {
 			$sTextareaNew .= FV_Antispam::disp__math_question($sProtect);
     }
     
-    $sTextarea = str_replace( array('required="required"',"required='required'"), array('',''), $sTextarea ); // HTML5 form validation needs to be disabled
+    $sTextarea = str_replace( array( 'required="required"', "required='required'", 'required' ), '', $sTextarea ); // HTML5 form validation needs to be disabled
     
     $sForm = preg_replace('~<textarea([^\>]*name=[\'\"]comment[\'\"][^\>]*>).*?</textarea>~', $sTextarea, $sForm ); // put in the adjusted textarea
     $sForm = preg_replace('~(class=[\'"][^\'"]*?)required([^\'"]*?[\'"])~', "$1$2", $sForm);   // gotta get rid of class="required"
@@ -1779,10 +1785,19 @@ function fvacq( form_name, form_id ) {
   	if( isset($_POST['m_'.$protect]) && isset($_POST['ma_'.$protect]) && $_POST['m_'.$protect] == $_POST['ma_'.$protect] ) {
     	$_POST['user_email'] = ( $_POST['user_email'] ) ? $_POST['user_email'] : $_POST[$this->func__ip_protect()];
   	} else if( isset($_POST['user_email']) && trim($_POST['user_email']) != "" ) {
-      $fv_antispam_registrations = get_option('fv_antispam_registrations');
-      $fv_antispam_registrations = ( $fv_antispam_registrations ) ? $fv_antispam_registrations : array();      
+      $fv_antispam_registrations = get_option('fv_antispam_registrations', array() );
+
+      // Go through $fv_antispam_registrations and remove items older than 1 year
+      $keep_recent_only = array();
+      foreach( $fv_antispam_registrations as $line ) {
+        if ( strtotime( $line['date'] ) > strtotime( '-1 year' ) ) {
+          $keep_recent_only[] = $line;
+        }
+      }
+      $fv_antispam_registrations = $keep_recent_only;
+
       $fv_antispam_registrations[] = array( 'date' => date('r'), 'user_login' => $_POST['user_login'], 'user_email' => $_POST['user_email'] );
-      update_option( 'fv_antispam_registrations', $fv_antispam_registrations );
+      update_option( 'fv_antispam_registrations', $fv_antispam_registrations, false );
       unset($_POST['user_email']);
       
       add_filter( 'registration_errors', array( $this, 'func__registration_errors' ) );
